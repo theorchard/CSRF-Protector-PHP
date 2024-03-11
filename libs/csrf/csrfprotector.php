@@ -543,6 +543,7 @@ if (!defined('__CSRF_PROTECTOR__')) {
             $context['REQUEST_URI'] = $_SERVER['REQUEST_URI'];
             $context['requestType'] = self::$requestType;
             $context['cookie'] = $_COOKIE;
+            $context['session'] = $_SESSION;
 
             self::$logger->log("OWASP CSRF PROTECTOR VALIDATION FAILURE", $context);
         }
