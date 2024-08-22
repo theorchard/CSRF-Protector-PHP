@@ -22,6 +22,23 @@ class csrfp_wrapper extends csrfprotector
     }
 
     /**
+     * Function to provide wrapper method to set the protected var, tokens
+     * @param array $tokens
+     */
+    public static function updateTokens($tokens)
+    {
+        self::$tokens = $tokens;
+    }
+
+    /**
+     * Function to provide wrapper method to get the protected var, tokens
+     */
+    public static function getTokens()
+    {
+        return self::$tokens;
+    }
+
+    /**
      * Function to check for a string value anywhere within HTTP response headers
      * Returns true on first match of $needle in header names or values
      * @param string $needle
@@ -77,7 +94,7 @@ class Helper {
 /**
  * main test class
  */
-class csrfp_test extends PHPUnit_Framework_TestCase
+class csrfp_test extends \PHPUnit\Framework\TestCase
 {
     /**
      * @var array to hold current configurations
@@ -92,7 +109,7 @@ class csrfp_test extends PHPUnit_Framework_TestCase
     /**
      * Function to be run before every test*() functions.
      */
-    public function setUp()
+    public function setUp(): void
     {
         $this->logDir = __DIR__ .'/logs';
 
@@ -111,6 +128,7 @@ class csrfp_test extends PHPUnit_Framework_TestCase
 
         //token mismatch - leading to failed validation
         $_SESSION[csrfprotector::$config['CSRFP_TOKEN']] = array('abc');
+        csrfp_wrapper::updateTokens(array('abc'));
         $_SERVER['SERVER_PROTOCOL'] = 'HTTP/1.1';
         $_SERVER['HTTPS'] = null;
 
@@ -126,7 +144,7 @@ class csrfp_test extends PHPUnit_Framework_TestCase
     /**
      * tearDown()
      */
-    public function tearDown()
+    public function tearDown(): void
     {
         unlink(__DIR__ .'/../libs/config.php');
         if (is_dir(__DIR__ .'/logs'))
@@ -139,15 +157,16 @@ class csrfp_test extends PHPUnit_Framework_TestCase
     public function testRefreshToken()
     {
         $val = $_COOKIE[csrfprotector::$config['CSRFP_TOKEN']] = '123abcd';
-        $_SESSION[csrfprotector::$config['CSRFP_TOKEN']] = array('123abcd');
+        csrfp_wrapper::updateTokens(array('123abcd'));
         csrfProtector::$config['tokenLength'] = 20;
         csrfProtector::refreshToken();
 
-        $this->assertTrue(strcmp($val, $_SESSION[csrfprotector::$config['CSRFP_TOKEN']][1]) != 0);
+        $tokens = csrfp_wrapper::getTokens();
+        $this->assertTrue(strcmp($val, $tokens[1]) != 0);
 
         $this->assertTrue(csrfP_wrapper::checkHeader('Set-Cookie'));
         $this->assertTrue(csrfP_wrapper::checkHeader('csrfp_token'));
-        $this->assertTrue(csrfp_wrapper::checkHeader($_SESSION[csrfprotector::$config['CSRFP_TOKEN']][1]));
+        $this->assertTrue(csrfp_wrapper::checkHeader($tokens[1]));
     }
 
     /**
@@ -194,7 +213,7 @@ class csrfp_test extends PHPUnit_Framework_TestCase
     public function testSecureCookie()
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
-        $_SESSION[csrfprotector::$config['CSRFP_TOKEN']] = array('123abcd');
+        csrfp_wrapper::updateTokens(array('123abcd'));
         csrfProtector::$config['tokenLength'] = 20;
 
         // this one would generally fails, as init was already called and now private static
@@ -207,12 +226,12 @@ class csrfp_test extends PHPUnit_Framework_TestCase
         // change value to false
         $property->setValue($csrfp, new csrfpCookieConfig(array('secure' => false)));
         csrfprotector::refreshToken();
-        $this->assertNotRegExp('/; secure/', csrfp_wrapper::getHeaderValue('Set-Cookie'));
+        $this->assertDoesNotMatchRegularExpression('/; secure/', csrfp_wrapper::getHeaderValue('Set-Cookie'));
 
         // change value to true
         $property->setValue($csrfp, new csrfpCookieConfig(array('secure' => true)));
         csrfprotector::refreshToken();
-        $this->assertRegExp('/; secure/', csrfp_wrapper::getHeaderValue('Set-Cookie'));
+        $this->assertMatchesRegularExpression('/; secure/', csrfp_wrapper::getHeaderValue('Set-Cookie'));
     }
 
     /**
@@ -221,7 +240,7 @@ class csrfp_test extends PHPUnit_Framework_TestCase
     public function testCookieExpireTime()
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
-        $_SESSION[csrfprotector::$config['CSRFP_TOKEN']] = array('123abcd');
+        csrfp_wrapper::updateTokens(array('123abcd'));
         csrfProtector::$config['tokenLength'] = 20;
 
         // this one would generally fails, as init was already called and now private static
@@ -234,10 +253,15 @@ class csrfp_test extends PHPUnit_Framework_TestCase
         // change value to 600
         $property->setValue($csrfp, new csrfpCookieConfig(array('expire' => 600)));
         csrfprotector::refreshToken();
+        if (version_compare(phpversion(), '8.2', '>=')) {
+            $expectedPattern = '/; expires=' . date('D, d M Y H:i', time() + 600) . ':\d\d GMT;?/';
+        } else {
+            $expectedPattern = '/; expires=' . date('D, d-M-Y H:i', time() + 600) . ':\d\d GMT;?/';
+        }
         // Check the expire date to the nearest minute in case the seconds does not match during test execution
-        $this->assertRegExp('/; expires=' . date('D, d-M-Y H:i', time() + 600) . ':\d\d GMT;?/', csrfp_wrapper::getHeaderValue('Set-Cookie'));
+        $this->assertMatchesRegularExpression($expectedPattern, csrfp_wrapper::getHeaderValue('Set-Cookie'));
         if(version_compare(phpversion(), '5.5', '>=')) {
-            $this->assertRegExp('/; Max-Age=600/', csrfp_wrapper::getHeaderValue('Set-Cookie'));
+            $this->assertMatchesRegularExpression('/; Max-Age=600/', csrfp_wrapper::getHeaderValue('Set-Cookie'));
         }
     }
 
@@ -394,28 +418,28 @@ class csrfp_test extends PHPUnit_Framework_TestCase
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST[csrfprotector::$config['CSRFP_TOKEN']]
             = $_GET[csrfprotector::$config['CSRFP_TOKEN']]
-            = $_SESSION[csrfprotector::$config['CSRFP_TOKEN']][0];
-        $temp = $_SESSION[csrfprotector::$config['CSRFP_TOKEN']];
+            = csrfp_wrapper::getTokens()[0];
+        $temp = csrfp_wrapper::getTokens();
 
         csrfprotector::authorizePost(); //will create new session and cookies
-        $this->assertFalse($temp == $_SESSION[csrfprotector::$config['CSRFP_TOKEN']][0]);
+        $this->assertFalse($temp == csrfp_wrapper::getTokens()[0]);
         $this->assertTrue(csrfp_wrapper::checkHeader('Set-Cookie'));
         $this->assertTrue(csrfp_wrapper::checkHeader('csrfp_token'));
-        // $this->assertTrue(csrfp_wrapper::checkHeader($_SESSION[csrfprotector::$config['CSRFP_TOKEN']][0]));  // Combine these 3 later
+        // $this->assertTrue(csrfp_wrapper::checkHeader(csrfp_wrapper::getTokens()[0]);  // Combine these 3 later
 
         // For get method
         $_SERVER['REQUEST_METHOD'] = 'GET';
         csrfp_wrapper::changeRequestType('GET');
         $_POST[csrfprotector::$config['CSRFP_TOKEN']]
             = $_GET[csrfprotector::$config['CSRFP_TOKEN']]
-            = $_SESSION[csrfprotector::$config['CSRFP_TOKEN']][0];
-        $temp = $_SESSION[csrfprotector::$config['CSRFP_TOKEN']];
+            = csrfp_wrapper::getTokens()[0];
+        $temp = csrfp_wrapper::getTokens();
 
         csrfprotector::authorizePost(); //will create new session and cookies
-        $this->assertFalse($temp == $_SESSION[csrfprotector::$config['CSRFP_TOKEN']]);
+        $this->assertFalse($temp == csrfp_wrapper::getTokens());
         $this->assertTrue(csrfp_wrapper::checkHeader('Set-Cookie'));
         $this->assertTrue(csrfp_wrapper::checkHeader('csrfp_token'));
-        // $this->assertTrue(csrfp_wrapper::checkHeader($_SESSION[csrfprotector::$config['CSRFP_TOKEN']][0]));  // Combine these 3 later
+        // $this->assertTrue(csrfp_wrapper::checkHeader(csrfp_wrapper::getTokens()[0]);  // Combine these 3 later
     }
 
     /**
@@ -435,14 +459,14 @@ class csrfp_test extends PHPUnit_Framework_TestCase
         // change value to false
         $property->setValue($csrfp, $serverKey);
 
-        $_SERVER[$serverKey] = $_SESSION[csrfprotector::$config['CSRFP_TOKEN']][0];
-        $temp = $_SESSION[csrfprotector::$config['CSRFP_TOKEN']];
+        $_SERVER[$serverKey] = csrfp_wrapper::getTokens()[0];
+        $temp = csrfp_wrapper::getTokens();
 
         csrfprotector::authorizePost(); //will create new session and cookies
-        $this->assertFalse($temp == $_SESSION[csrfprotector::$config['CSRFP_TOKEN']][0]);
+        $this->assertFalse($temp == csrfp_wrapper::getTokens()[0]);
         $this->assertTrue(csrfp_wrapper::checkHeader('Set-Cookie'));
         $this->assertTrue(csrfp_wrapper::checkHeader('csrfp_token'));
-        // $this->assertTrue(csrfp_wrapper::checkHeader($_SESSION[csrfprotector::$config['CSRFP_TOKEN']][0]));  // Combine these 3 later
+        // $this->assertTrue(csrfp_wrapper::checkHeader(csrfp_wrapper::getTokens()[0]));  // Combine these 3 later
  
     }
 
@@ -457,12 +481,12 @@ class csrfp_test extends PHPUnit_Framework_TestCase
 
         $this->assertFalse($token1 == $token2);
         $this->assertEquals(20, strlen($token1));
-        $this->assertRegExp('/^[a-z0-9]{20}$/', $token1);
+        $this->assertMatchesRegularExpression('/^[a-z0-9]{20}$/', $token1);
 
         csrfprotector::$config['tokenLength'] = 128;
         $token = csrfprotector::generateAuthToken();
         $this->assertEquals(128, strlen($token));
-        $this->assertRegExp('/^[a-z0-9]{128}$/', $token);
+        $this->assertMatchesRegularExpression('/^[a-z0-9]{128}$/', $token);
     }
 
     /**
@@ -488,10 +512,10 @@ class csrfp_test extends PHPUnit_Framework_TestCase
 
         //Check if file has been modified
         $this->assertNotEquals($inpLength, $outLength);
-        $this->assertContains('<noscript>', $modifiedHTML);
-        $this->assertContains('<input type="hidden" id="' . CSRFP_FIELD_TOKEN_NAME . '"', $modifiedHTML);
-        $this->assertContains('<input type="hidden" id="' . CSRFP_FIELD_URLS . '"', $modifiedHTML);
-        $this->assertContains('<script', $modifiedHTML);
+        $this->assertStringContainsString('<noscript>', $modifiedHTML);
+        $this->assertStringContainsString('<input type="hidden" id="' . CSRFP_FIELD_TOKEN_NAME . '"', $modifiedHTML);
+        $this->assertStringContainsString('<input type="hidden" id="' . CSRFP_FIELD_URLS . '"', $modifiedHTML);
+        $this->assertStringContainsString('<script', $modifiedHTML);
     }
 
     /**
@@ -536,7 +560,7 @@ class csrfp_test extends PHPUnit_Framework_TestCase
         $modifiedHTML = csrfprotector::ob_handler($testHTML, 0);
 
         $this->assertEquals(strpos($modifiedHTML, '<body') + 23, strpos($modifiedHTML, '<noscript'));
-        $this->assertContains('</script>' . PHP_EOL . '</body>', $modifiedHTML);
+        $this->assertStringContainsString('</script>' . PHP_EOL . '</body>', $modifiedHTML);
     }
 
     /**
@@ -558,11 +582,11 @@ class csrfp_test extends PHPUnit_Framework_TestCase
 
         $modifiedHTML = csrfprotector::ob_handler($testHTML, 0);
 
-        $this->assertContains('<input type="hidden" id="' . CSRFP_FIELD_TOKEN_NAME . '"', $modifiedHTML);
-        $this->assertContains('<input type="hidden" id="' . CSRFP_FIELD_URLS . '"', $modifiedHTML);
+        $this->assertStringContainsString('<input type="hidden" id="' . CSRFP_FIELD_TOKEN_NAME . '"', $modifiedHTML);
+        $this->assertStringContainsString('<input type="hidden" id="' . CSRFP_FIELD_URLS . '"', $modifiedHTML);
 
-        $this->assertContains('<noscript', $modifiedHTML);
-        $this->assertNotContains('</script>' . PHP_EOL . '</body>', $modifiedHTML);
+        $this->assertStringContainsString('<noscript', $modifiedHTML);
+        $this->assertStringNotContainsString('</script>' . PHP_EOL . '</body>', $modifiedHTML);
     }
 
     /**
@@ -593,16 +617,15 @@ class csrfp_test extends PHPUnit_Framework_TestCase
 
     /**
      * test log CSRF attack -> log directory exception
-     * @expectedException logDirectoryNotFoundException
      */
     public function testlogCSRFattack_logDirException()
     {
+        $this->expectException('logDirectoryNotFoundException');
         new csrfpDefaultLogger('unknown_location');
     }
 
     /**
-     * test log CSRF attack -> log file write error
-     * @expectedException logFileWriteError
+     * test log CSRF attack -> log file write error 
      */
     public function testlogCSRFattack_logFileError()
     {
@@ -610,6 +633,7 @@ class csrfp_test extends PHPUnit_Framework_TestCase
         // fopen to return FALSE
         $errorReportingLevel = error_reporting(E_ERROR);
 
+        $this->expectException('logFileWriteError');
         $logFilename = $this->logDir . "/" . date("m-20y") . ".log";
         if (!is_dir($logFilename)) mkdir($logFilename, 0777, true);
 
@@ -712,7 +736,7 @@ class csrfp_test extends PHPUnit_Framework_TestCase
     {
         putenv('mod_csrfp_enabled=true');
         $_COOKIE[csrfprotector::$config['CSRFP_TOKEN']] = 'abc';
-        $_SESSION[csrfprotector::$config['CSRFP_TOKEN']] = array('abc');
+        csrfp_wrapper::updateTokens(array('abc'));
 
         csrfProtector::$config = array();
         csrfProtector::init();
@@ -735,7 +759,7 @@ class csrfp_test extends PHPUnit_Framework_TestCase
         $_SERVER['REQUEST_METHOD'] = 'GET';
         csrfProtector::init();
 
-        $this->assertTrue(count(csrfProtector::$config) == 12);
+        $this->assertTrue(count(csrfProtector::$config) == 16);
         try {
             csrfProtector::init();
             $this->fail("alreadyInitializedException not raised");
@@ -749,11 +773,12 @@ class csrfp_test extends PHPUnit_Framework_TestCase
 
     /**
      * Test for exception thrown when init() method is called with missing config items
-     * @expectedException incompleteConfigurationException
-     * @expectedExceptionMessage OWASP CSRFProtector: Incomplete configuration file: missing logDirectory, failedAuthAction, jsUrl, tokenLength value(s)
      */
     public function testInit_incompleteConfigurationException()
     {
+        $this->expectException('incompleteConfigurationException');
+        $this->expectExceptionMessage('OWASP CSRFProtector: Incomplete configuration file: missing logDirectory, failedAuthAction, jsUrl, tokenLength value(s)');
+
         // Create an instance of config file -- for testing
         $data = file_get_contents(__DIR__ .'/config.testInit_incompleteConfigurationException.php');
         file_put_contents(__DIR__ .'/../libs/config.php', $data);

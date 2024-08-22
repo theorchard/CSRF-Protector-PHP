@@ -16,14 +16,14 @@ class testConsoleLogger implements LoggerInterface {
     }
 }
 
-class csrfp_test_customLogger extends PHPUnit_Framework_TestCase
+class csrfp_test_customLogger extends \PHPUnit\Framework\TestCase
 {
     /**
      * @var array to hold current configurations
      */
     protected $config = array();
 
-    public function setUp() {
+    public function setUp(): void {
         csrfprotector::$config['CSRFP_TOKEN'] = 'csrfp_token';
         csrfprotector::$config['CSRFP_TOKEN_EXPIRY'] = 'csrfp_token_expiry';
         csrfprotector::$config['cookieConfig'] = array('secure' => false);
@@ -36,7 +36,7 @@ class csrfp_test_customLogger extends PHPUnit_Framework_TestCase
           = $_GET[csrfprotector::$config['CSRFP_TOKEN']] = '123';
 
         //token mismatch - leading to failed validation
-        $_SESSION[csrfprotector::$config['CSRFP_TOKEN']] = array('abc');
+        csrfp_wrapper::updateTokens(array('abc'));
         $_SERVER['SERVER_PROTOCOL'] = 'HTTP/1.1';
         $_SERVER['HTTPS'] = null;
 
@@ -52,7 +52,7 @@ class csrfp_test_customLogger extends PHPUnit_Framework_TestCase
     /**
      * tearDown()
      */
-    public function tearDown()
+    public function tearDown(): void
     {
         unlink(__DIR__ .'/../libs/config.php');
         if (is_dir(__DIR__ .'/logs'))
